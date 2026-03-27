@@ -1,4 +1,4 @@
-# MATLAB Usage Instructions for FELIX_Gaussian_PCC_Plot.m
+# FELIX vs Gaussian Pearson Correlation Coefficient Plotting Scripts
 
 ## Overview
 The `FELIX_Gaussian_PCC_Plot.m` script is designed to facilitate the comparison of IRMPD experimental data with Gaussian calculated spectra. This allows researchers to visually assess the agreement between their experimental results and theoretical predictions.
