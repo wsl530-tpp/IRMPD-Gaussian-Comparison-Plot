@@ -58,6 +58,7 @@ function FELIX_Gaussian_PCC_Batch_GUI()
     %% 4. Pre-Process All Gaussian Data 
     disp('Calculating optimal shifts for all files...');
     batchData = struct(); 
+    list_names = cell(1, num_files); % Array to hold names for the reorder listbox
     
     for i = 1:num_files
         % Parse Filename
@@ -85,7 +86,8 @@ function FELIX_Gaussian_PCC_Batch_GUI()
             elseif contains(raw_basis, 'ccpvdz'), detected_basis = 'cc-pVDZ';
             else, detected_basis = raw_basis; end
         end
-        batchData(i).TheoryStr = sprintf('%s\n%s', detected_func, detected_basis); % Split theory into two lines
+        batchData(i).TheoryStr = sprintf('%s\n%s', detected_func, detected_basis); 
+        list_names{i} = sprintf('%s / %s', detected_func, detected_basis); % Single line for the listbox
         
         % Load File
         fileID = fopen(gauss_fullpaths{i}, 'r');
@@ -136,7 +138,6 @@ function FELIX_Gaussian_PCC_Batch_GUI()
     plot_pnl = uipanel(fig, 'Position', [260, 10, 1020, 780], 'Scrollable', 'on', 'BackgroundColor', 'w');
     
     % --- Create the MASSIVE Inner Canvas ---
-    % Guarantee at least 350 pixels of height PER FILE so they never get squished
     inner_height = max(760, num_files * 350); 
     
     % The inner panel sits inside the scrollable panel. 
@@ -157,15 +158,19 @@ function FELIX_Gaussian_PCC_Batch_GUI()
 
     % --- UI Elements in Left Panel ---
     uibutton(pnl, 'push', 'Text', 'Export Figure to PNG', ...
-        'Position', [20, 700, 200, 40], 'FontWeight', 'bold', 'BackgroundColor', [0.8 0.9 0.8], ...
-        'ButtonPushedFcn', @(src, event) exportFigure(inner_pnl, irmpd_filename)); % Exporting inner_pnl gets the whole high-res canvas!
+        'Position', [20, 720, 200, 30], 'FontWeight', 'bold', 'BackgroundColor', [0.8 0.9 0.8], ...
+        'ButtonPushedFcn', @(src, event) exportFigure(inner_pnl, irmpd_filename)); 
 
-    uilabel(pnl, 'Text', 'Global X-Axis Limits:', 'Position', [20, 640, 200, 22], 'FontWeight', 'bold');
-    uilabel(pnl, 'Text', 'Min:', 'Position', [20, 610, 40, 22]);
-    xMinEdit = uieditfield(pnl, 'numeric', 'Position', [60, 610, 60, 22], ...
+    uilabel(pnl, 'Text', 'Overall Graph Heading:', 'Position', [20, 690, 200, 22], 'FontWeight', 'bold');
+    titleEdit = uieditfield(pnl, 'text', 'Position', [20, 665, 200, 22], ...
+        'Value', 'IRMPD vs Calculated Spectra', 'ValueChangedFcn', @(src, event) updatePlots());
+
+    uilabel(pnl, 'Text', 'Global X-Axis Limits:', 'Position', [20, 630, 200, 22], 'FontWeight', 'bold');
+    uilabel(pnl, 'Text', 'Min:', 'Position', [20, 600, 40, 22]);
+    xMinEdit = uieditfield(pnl, 'numeric', 'Position', [60, 600, 60, 22], ...
         'Value', 800, 'ValueChangedFcn', @(src, event) updatePlots());
-    uilabel(pnl, 'Text', 'Max:', 'Position', [130, 610, 40, 22]);
-    xMaxEdit = uieditfield(pnl, 'numeric', 'Position', [170, 610, 60, 22], ...
+    uilabel(pnl, 'Text', 'Max:', 'Position', [130, 600, 40, 22]);
+    xMaxEdit = uieditfield(pnl, 'numeric', 'Position', [170, 600, 60, 22], ...
         'Value', 2000, 'ValueChangedFcn', @(src, event) updatePlots());
 
     uilabel(pnl, 'Text', 'Global Y-Axis Limits:', 'Position', [20, 560, 200, 22], 'FontWeight', 'bold');
@@ -176,13 +181,22 @@ function FELIX_Gaussian_PCC_Batch_GUI()
     yMaxEdit = uieditfield(pnl, 'numeric', 'Position', [170, 530, 60, 22], ...
         'Value', 1.5, 'ValueChangedFcn', @(src, event) updatePlots());
 
-    uilabel(pnl, 'Text', 'IRMPD Y-Offset:', 'Position', [20, 470, 120, 22], 'FontWeight', 'bold');
-    offsetEdit = uieditfield(pnl, 'numeric', 'Position', [150, 470, 70, 22], ...
+    uilabel(pnl, 'Text', 'IRMPD Y-Offset:', 'Position', [20, 480, 120, 22], 'FontWeight', 'bold');
+    offsetEdit = uieditfield(pnl, 'numeric', 'Position', [150, 480, 70, 22], ...
         'Value', 0, 'ValueChangedFcn', @(src, event) updatePlots());
 
-    uilabel(pnl, 'Text', 'Calc Y-Scale:', 'Position', [20, 430, 120, 22], 'FontWeight', 'bold');
-    yscaleEdit = uieditfield(pnl, 'numeric', 'Position', [150, 430, 70, 22], ...
+    uilabel(pnl, 'Text', 'Calc Y-Scale:', 'Position', [20, 440, 120, 22], 'FontWeight', 'bold');
+    yscaleEdit = uieditfield(pnl, 'numeric', 'Position', [150, 440, 70, 22], ...
         'Value', 1, 'ValueChangedFcn', @(src, event) updatePlots());
+
+    % NEW REORDER UI ELEMENTS
+    uilabel(pnl, 'Text', 'Plot Order (Select & Move):', 'Position', [20, 390, 200, 22], 'FontWeight', 'bold');
+    orderList = uilistbox(pnl, 'Position', [20, 150, 200, 235], 'Items', list_names, 'ItemsData', 1:num_files);
+    
+    uibutton(pnl, 'push', 'Text', 'Move Up ↑', 'Position', [20, 110, 95, 30], ...
+        'ButtonPushedFcn', @(src, event) moveItem(-1));
+    uibutton(pnl, 'push', 'Text', 'Move Down ↓', 'Position', [125, 110, 95, 30], ...
+        'ButtonPushedFcn', @(src, event) moveItem(1));
 
     % Initial Plot Draw
     updatePlots();
@@ -190,23 +204,64 @@ function FELIX_Gaussian_PCC_Batch_GUI()
     % Scroll to top of the panel automatically
     try scroll(plot_pnl, 'top'); catch; end 
 
-    %% 6. Update Plots Function
+    %% 6. Helper Function for Reordering the List
+    function moveItem(direction)
+        val = orderList.Value; % Get the currently selected original index
+        idx = find([orderList.ItemsData] == val); % Find its current position in the list
+        
+        if direction == -1 && idx > 1
+            % Swap with the item above it
+            tempItem = orderList.Items{idx-1};
+            tempData = orderList.ItemsData(idx-1);
+            
+            orderList.Items{idx-1} = orderList.Items{idx};
+            orderList.ItemsData(idx-1) = orderList.ItemsData(idx);
+            
+            orderList.Items{idx} = tempItem;
+            orderList.ItemsData(idx) = tempData;
+            
+            orderList.Value = val; % Keep the same item highlighted
+            updatePlots(); % Redraw the plots!
+            
+        elseif direction == 1 && idx < num_files
+            % Swap with the item below it
+            tempItem = orderList.Items{idx+1};
+            tempData = orderList.ItemsData(idx+1);
+            
+            orderList.Items{idx+1} = orderList.Items{idx};
+            orderList.ItemsData(idx+1) = orderList.ItemsData(idx);
+            
+            orderList.Items{idx} = tempItem;
+            orderList.ItemsData(idx) = tempData;
+            
+            orderList.Value = val; % Keep the same item highlighted
+            updatePlots(); % Redraw the plots!
+        end
+    end
+
+    %% 7. Update Plots Function
     function updatePlots()
         x_lims = [xMinEdit.Value, xMaxEdit.Value];
         y_lims = [yMinEdit.Value, yMaxEdit.Value];
         y_offset = offsetEdit.Value;
         calc_yscale = yscaleEdit.Value;
         
-        for idx = 1:num_files
+        % Read the current visual order from the ListBox!
+        plotOrder = orderList.ItemsData; 
+        
+        for i = 1:num_files
             % --- 1. Draw the Stacked Graph ---
-            ax = axs_plot{idx};
+            ax = axs_plot{i};
             cla(ax); hold(ax, 'on');
+            
+            idx = plotOrder(i); % Look up the original data index based on our new order
             
             shift = batchData(idx).bestShift;
             shifted_env_x = batchData(idx).env_x + shift;
             shifted_sticks_x = batchData(idx).sticks_x + shift;
             
-            calcColor = color_palette(idx, :);
+            % Use the original color anchored to the data so colors don't jump around when you reorder them
+            calcColor = color_palette(idx, :); 
             plot(ax, shifted_env_x, batchData(idx).env_y_norm * calc_yscale, 'Color', calcColor, 'LineWidth', 1.5);
             stem(ax, shifted_sticks_x, batchData(idx).sticks_y_norm * calc_yscale, 'Color', calcColor, 'Marker', 'none', 'LineWidth', 1.5); 
             plot(ax, WaveNo, IRMPD_norm + y_offset, 'k-', 'LineWidth', 1.5);
@@ -217,16 +272,12 @@ function FELIX_Gaussian_PCC_Batch_GUI()
             ax.YTickLabel = []; % Hide Y-axis numbers to keep it clean
             ax.FontSize = 11;
             
-            % Center the X-axis label nicely under the bottom plot
-            if idx < num_files
-                ax.XTickLabel = [];
-            else
-                xlabel(ax, '\bf\it{Wavenumber (cm^{-1})}', 'FontSize', 14);
-            end
+            % Add X-axis label to EVERY plot
+            xlabel(ax, '\bf\it{Wavenumber (cm^{-1})}', 'FontSize', 14);
             hold(ax, 'off');
             
             % --- 2. Draw the Text Box on the Right ---
-            ax_txt = axs_text{idx};
+            ax_txt = axs_text{i};
             cla(ax_txt); axis(ax_txt, 'off');
             
             plot_text = sprintf('\\bf%s\n\\rmShift: %+.1f cm^{-1}\nOriginal PCC: %.3f\nOptimized PCC: %.3f', ...
@@ -237,9 +288,12 @@ function FELIX_Gaussian_PCC_Batch_GUI()
                 'FontSize', 12, 'BackgroundColor', 'w', 'EdgeColor', 'none', ...
                 'VerticalAlignment', 'middle', 'HorizontalAlignment', 'left');
         end
+        
+        % Set the Overall Graph Heading
+        title(t, titleEdit.Value, 'FontSize', 18, 'FontWeight', 'bold');
     end
 
-    %% 7. Export Function
+    %% 8. Export Function
     function exportFigure(canvas_handle, base_filename)
         [~, name, ~] = fileparts(base_filename);
         default_save = sprintf('%s_Batch_Compare.png', name);
