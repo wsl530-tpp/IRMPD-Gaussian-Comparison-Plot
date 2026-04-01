@@ -4,20 +4,30 @@ function FELIX_Gaussian_PCC_Batch_GUI()
 
     %% 1. Select IRMPD File
     disp('Please select the IRMPD .csv data file...');
-    [irmpd_filename, irmpd_pathname] = uigetfile('*.csv', 'Select the IRMPD CSV Data File');
+    
+    % Retrieve the last used CSV folder (defaults to current directory if first run)
+    last_csv_path = getpref('FELIX_GUI', 'last_csv_path', pwd);
+    
+    [irmpd_filename, irmpd_pathname] = uigetfile(fullfile(last_csv_path, '*.csv'), 'Select the IRMPD CSV Data File');
     if isequal(irmpd_filename, 0)
         disp('User canceled IRMPD file selection. Exiting...');
         return;
     end
     irmpd_file = fullfile(irmpd_pathname, irmpd_filename);
+    
+    % Save this folder path for the next time you run the script!
+    setpref('FELIX_GUI', 'last_csv_path', irmpd_pathname);
 
     %% 2. Select MULTIPLE Gaussian Files (Loop for multiple folders)
     disp('Please select Gaussian .txt files...');
     gauss_fullpaths = {}; 
     gauss_filenames = {}; 
     
+    % Retrieve the last used TXT folder (defaults to wherever the CSV was if first run)
+    last_txt_path = getpref('FELIX_GUI', 'last_txt_path', irmpd_pathname);
+    
     while true
-        [g_names, g_path] = uigetfile('*.txt', 'Select Gaussian TXT Files', 'MultiSelect', 'on');
+        [g_names, g_path] = uigetfile(fullfile(last_txt_path, '*.txt'), 'Select Gaussian TXT Files', 'MultiSelect', 'on');
         
         if isequal(g_names, 0)
             if isempty(gauss_fullpaths)
@@ -34,6 +44,10 @@ function FELIX_Gaussian_PCC_Batch_GUI()
             gauss_fullpaths{end+1} = fullfile(g_path, g_names{k});
             gauss_filenames{end+1} = g_names{k};
         end
+        
+        % Save this newly selected TXT folder path for the next loop iteration / next run!
+        last_txt_path = g_path;
+        setpref('FELIX_GUI', 'last_txt_path', g_path);
         
         choice = questdlg('Do you want to select more files from another folder?', ...
             'Select More Files?', 'Yes', 'No (I am done)', 'No (I am done)');
@@ -89,7 +103,11 @@ function FELIX_Gaussian_PCC_Batch_GUI()
             elseif contains(raw_basis, 'cep31g') || contains(raw_basis, 'cep-31g'), detected_basis = 'CEP-31G';
             else, detected_basis = raw_basis; end
         end
-        batchData(i).TheoryStr = sprintf('%s\n%s', detected_func, detected_basis); 
+        
+        % Store explicitly so user can edit them later
+        batchData(i).func = detected_func;
+        batchData(i).basis = detected_basis;
+        
         list_names{i} = sprintf('%s / %s', detected_func, detected_basis); 
         
         % DYNAMICALLY FETCH NIST CCCBDB SCALING FACTOR
@@ -122,7 +140,7 @@ function FELIX_Gaussian_PCC_Batch_GUI()
     fig = uifigure('Name', 'IRMPD Batch Comparison GUI', 'Position', [50, 50, 1400, 850]);
     
     % --- SCROLLABLE LEFT PANEL FOR CONTROLS ---
-    inner_height_left = max(800, 950 + 35 * num_files);
+    inner_height_left = max(850, 1050 + 35 * num_files); % Taller to fit the edit boxes
     left_scroll_pnl = uipanel(fig, 'Position', [10, 10, 260, 830], 'Scrollable', 'on');
     pnl = uipanel(left_scroll_pnl, 'Position', [0, max(0, 830 - inner_height_left), 240, inner_height_left], 'BorderType', 'none');
     
@@ -135,7 +153,6 @@ function FELIX_Gaussian_PCC_Batch_GUI()
     
     inner_pnl = uipanel(plot_pnl, 'Position', [0, 0, default_canvas_width, num_files * default_plot_height], 'BorderType', 'none', 'BackgroundColor', 'w');
     
-    % Changed to 8 columns: 5 for plot, 3 for text. Gives MASSIVE room to text to prevent cutoff.
     t = tiledlayout(inner_pnl, num_files, 8, 'TileSpacing', 'compact', 'Padding', 'normal');
     
     color_palette = lines(num_files); 
@@ -144,7 +161,7 @@ function FELIX_Gaussian_PCC_Batch_GUI()
     
     for i = 1:num_files
         axs_plot{i} = nexttile(t, [1 5]); 
-        axs_text{i} = nexttile(t, [1 3]); % Text gets 3 columns now!
+        axs_text{i} = nexttile(t, [1 3]); 
         axis(axs_text{i}, 'off');         
     end
 
@@ -208,18 +225,31 @@ function FELIX_Gaussian_PCC_Batch_GUI()
     y_pos = y_pos - 35;
     uilabel(pnl, 'Text', 'Calc Y-Scale (Int):', 'Position', [20, y_pos, 120, 22], 'FontWeight', 'bold');
     yscaleEdit = uieditfield(pnl, 'numeric', 'Position', [150, y_pos, 70, 22], ...
-        'Value', 1, 'ValueChangedFcn', @(src, event) updatePlots());
+        'Value', 0.5, 'ValueChangedFcn', @(src, event) updatePlots());
 
     y_pos = y_pos - 35;
     autoPCCBox = uicheckbox(pnl, 'Text', ' Auto-Optimize Shift (PCC)', ...
         'Position', [20, y_pos, 200, 22], 'Value', 0, 'FontWeight', 'bold', ...
         'ValueChangedFcn', @(src, event) updatePlots());
 
+    % --- EDITABLE NAMES AND PLOT ORDER ---
     y_pos = y_pos - 40;
-    uilabel(pnl, 'Text', 'Plot Order (Select & Move):', 'Position', [20, y_pos, 200, 22], 'FontWeight', 'bold');
+    uilabel(pnl, 'Text', 'Plot Order (Select to Edit/Move):', 'Position', [20, y_pos, 200, 22], 'FontWeight', 'bold');
     y_pos = y_pos - 150;
-    orderList = uilistbox(pnl, 'Position', [20, y_pos, 200, 150], 'Items', list_names, 'ItemsData', 1:num_files);
+    orderList = uilistbox(pnl, 'Position', [20, y_pos, 200, 150], 'Items', list_names, 'ItemsData', 1:num_files, ...
+        'ValueChangedFcn', @(src, event) updateEditFields());
     
+    % The New Text Boxes for correcting Theory Names
+    y_pos = y_pos - 35;
+    uilabel(pnl, 'Text', 'Func:', 'Position', [20, y_pos, 40, 22]);
+    selFuncEdit = uieditfield(pnl, 'text', 'Position', [60, y_pos, 160, 22], ...
+        'ValueChangedFcn', @(src, event) applyNameChange());
+
+    y_pos = y_pos - 30;
+    uilabel(pnl, 'Text', 'Basis:', 'Position', [20, y_pos, 40, 22]);
+    selBasisEdit = uieditfield(pnl, 'text', 'Position', [60, y_pos, 160, 22], ...
+        'ValueChangedFcn', @(src, event) applyNameChange());
+
     y_pos = y_pos - 35;
     uibutton(pnl, 'push', 'Text', 'Move Up ↑', 'Position', [20, y_pos, 95, 30], ...
         'ButtonPushedFcn', @(src, event) moveItem(-1));
@@ -230,6 +260,7 @@ function FELIX_Gaussian_PCC_Batch_GUI()
     y_pos = y_pos - 40;
     uilabel(pnl, 'Text', 'X-Scale Factors (Freq):', 'Position', [20, y_pos, 200, 22], 'FontWeight', 'bold');
     
+    scaleLabels = gobjects(num_files, 1);
     scaleEdits = gobjects(num_files, 1);
     for i = 1:num_files
         y_pos = y_pos - 30;
@@ -239,13 +270,15 @@ function FELIX_Gaussian_PCC_Batch_GUI()
             short_name = [short_name(1:16) '..'];
         end
         
-        uilabel(pnl, 'Text', short_name, 'Position', [20, y_pos, 130, 22]);
+        scaleLabels(i) = uilabel(pnl, 'Text', short_name, 'Position', [20, y_pos, 130, 22]);
         
-        % The value is pre-filled with the NIST Dictionary lookup
         scaleEdits(i) = uieditfield(pnl, 'numeric', 'Position', [150, y_pos, 70, 22], ...
             'Value', batchData(i).freq_scale, 'ValueChangedFcn', @(src, event) updatePlots());
     end
 
+    % Pre-fill the editable text boxes for the first selection
+    updateEditFields();
+    
     % Initial Plot Draw
     updatePlots();
     
@@ -253,12 +286,49 @@ function FELIX_Gaussian_PCC_Batch_GUI()
     try scroll(plot_pnl, 'top'); catch; end 
     try scroll(left_scroll_pnl, 'top'); catch; end
 
-    %% 6. Helper Functions for Reordering and Resizing
+    %% 6. Helper Functions for Reordering, Resizing, and Renaming
     function resizeCanvas()
-        % Dynamically stretch the drawing canvas without changing the GUI window
         new_w = canvasWidthEdit.Value;
         new_h = plotHeightEdit.Value * num_files;
         inner_pnl.Position = [0, 0, new_w, new_h];
+        updatePlots();
+    end
+
+    function updateEditFields()
+        val = orderList.Value; % Get ID of currently selected plot
+        selFuncEdit.Value = batchData(val).func;
+        selBasisEdit.Value = batchData(val).basis;
+    end
+
+    function applyNameChange()
+        val = orderList.Value; 
+        
+        % 1. Save new text
+        new_func = selFuncEdit.Value;
+        new_basis = selBasisEdit.Value;
+        batchData(val).func = new_func;
+        batchData(val).basis = new_basis;
+        
+        % 2. Update listbox items dynamically
+        new_label = sprintf('%s / %s', new_func, new_basis);
+        list_names{val} = new_label;
+        orderList.Items = list_names;
+        orderList.Value = val; % keep highlight active
+        
+        % 3. Update the short label next to the Scaling factor
+        short_name = new_label;
+        if length(short_name) > 18
+            short_name = [short_name(1:16) '..'];
+        end
+        scaleLabels(val).Text = short_name;
+        
+        % 4. Search NIST dictionary in case the user typed a standard functional
+        new_sf = getNISTScalingFactor(new_func, new_basis);
+        if new_sf ~= 1.000 || ~strcmp(new_func, 'Unknown Functional')
+             scaleEdits(val).Value = new_sf;
+        end
+        
+        % 5. Redraw plots with correct names
         updatePlots();
     end
 
@@ -318,7 +388,7 @@ function FELIX_Gaussian_PCC_Batch_GUI()
             bestShift = 0;
             
             if is_auto_pcc
-                for shift = -50:0.5:50
+                for shift = -200:0.1:200
                     interp_env = interp1(scaled_env_x + shift, batchData(idx).env_y_norm, WaveNo, 'linear', 0);
                     cVal = corr(IRMPD_norm, interp_env, 'Type', 'Pearson');
                     if cVal > bestCorr
@@ -341,7 +411,6 @@ function FELIX_Gaussian_PCC_Batch_GUI()
             ylim(ax, y_lims);
             ax.YTickLabel = []; 
             
-            % Apply chosen Font Name and Size to axes
             ax.FontName = fName;
             ax.FontSize = fSize - 1; 
             
@@ -360,14 +429,12 @@ function FELIX_Gaussian_PCC_Batch_GUI()
                     list_names{idx}, freq_scale, orig_pcc);
             end
             
-            % Apply chosen Font Name and Size to text boxes
             text(ax_txt, 0, 0.5, plot_text, 'Units', 'normalized', ...
                 'FontName', fName, 'FontSize', fSize, ...
                 'BackgroundColor', 'w', 'EdgeColor', 'none', ...
                 'VerticalAlignment', 'middle', 'HorizontalAlignment', 'left');
         end
         
-        % Set the Overall Graph Heading Font
         title(t, titleEdit.Value, 'FontName', fName, 'FontSize', fSize + 6, 'FontWeight', 'bold');
     end
 
@@ -395,8 +462,8 @@ function FELIX_Gaussian_PCC_Batch_GUI()
         sf_map('ROHF_CEP31G') = 0.9085;
         
         % Common B3LYP Combinations
-        sf_map('B3LYP_6311G2D2P') = 0.9688; 
-        sf_map('B3LYP_6311G3DF3DP') = 0.9688;
+        sf_map('B3LYP_6311G2D2P') = 0.9668; 
+        sf_map('B3LYP_6311G3DF3DP') = 0.9668;
         sf_map('B3LYP_6311GDP') = 0.9679;
         sf_map('B3LYP_AUGCCPVDZ') = 0.9700;
         sf_map('B3LYP_AUGCCPVTZ') = 0.9689;
